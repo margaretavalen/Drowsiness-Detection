@@ -1,157 +1,84 @@
-# Importing Project Dependencies
-import numpy as np
 import cv2
-import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
-import time
-import winsound
+import numpy as np
 import streamlit as st
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import img_to_array
 
-# Setting up config for GPU usage
-physical_devices = tf.config.list_physical_devices("GPU")
-tf.config.experimental.set_memory_growth(physical_devices[0], True)
+# Load model CNN
+MODEL_PATH = "fcnn_model.h5"  # Ganti dengan model Anda
+model = load_model(MODEL_PATH)
 
-# Using  Har-cascade classifier from OpenCV
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+# Threshold dan konfigurasi deteksi
+EYE_CLOSED_THRESHOLD = 0.5  # Probabilitas threshold untuk mata tertutup
+CLOSED_FRAMES_THRESHOLD = 30  # Jumlah frame mata tertutup untuk mendeteksi kantuk
 
-# Loading the trained model for prediction purpose
-model = keras.models.load_model('fcnn_model.h5')
+# Fungsi untuk memproses gambar mata
+def preprocess_eye(eye_image):
+    eye_image = cv2.resize(eye_image, (64, 64))  # Resize sesuai kebutuhan
+    eye_image = cv2.cvtColor(eye_image, cv2.COLOR_BGR2GRAY)  # Ubah ke grayscale
+    eye_image = eye_image.astype("float") / 255.0  # Normalisasi
+    eye_image = eye_image.flatten()  # Ratakan array menjadi 1D
+    eye_image = np.expand_dims(eye_image, axis=0)  # Tambahkan batch dimension
+    return eye_image
 
-# Title for GUI
-st.title('Drowsiness Detection')
-img = []
+# Streamlit UI
+st.title("Drowsiness Detection with CNN")
+st.text("Real-time video feed to detect drowsiness.")
 
-# Navigation Bar
-nav_choice = st.sidebar.radio('Navigation', ('Home', 'Sleep Detection', 'Help Us Improve'), index=0)
-# Home page
-if nav_choice == 'Home':
-    st.header('Prevents sleep deprivation road accidents, by alerting drowsy drivers.')
-    st.image('ISHN0619_C3_pic.jpg')
-    st.markdown('<b>In accordance with the survey taken by the Times Of India, about 40 % of road </b>'
-                '<b>accidents are caused</b> '
-                '<b>due to sleep deprivation & fatigued drivers. In order to address this issue, this app will </b>'
-                '<b>alert such drivers with the help of deep learning models and computer vision.</b>'
-                '', unsafe_allow_html=True)
-    st.image('sleep.jfif', width=300)
-    st.markdown('<h1>How to use?<br></h1>'
-                '<b>1. Go to Sleep Detection page from the Navigation Side-Bar.</b><br>'
-                '<b>2. Make sure that, you have sufficient amount of light, in your room.</b><br>'
-                '<b>3. Align yourself such that, you are clearly visible in the web-cam and '
-                'stay closer to the web-cam. </b><br>'
-                '<b>4. Web-cam will take 3 pictures of you, so keep your eyes in the same state'
-                ' (open or closed) for about 5 seconds.</b><br>'
-                '<b>5. If your eyes are closed, the model will make a beep sound to alert you.</b><br>'
-                '<b>6. Otherwise, the model will continue taking your pictures at regular intervals of time.</b><br>'
-                '<font color="red"><br><b>For the purpose of the training process of the model, '
-                'dataset used is available <a href="https://www.kaggle.com/kutaykutlu/drowsiness-detection", '
-                'target="_blank">here</a></font></b>'
-                , unsafe_allow_html=True)
-    
-# Sleep Detection page
-elif nav_choice == 'Sleep Detection':
-    st.header('Image Prediction')
-    cap = 0
-    st.success('Please look at your web-cam, while following all the instructions given on the Home page.')
-    st.warning(
-        'Keeping the eyes in the same state is important but you can obviously blink your eyes, if they are open!!!')
-    b = st.progress(0)
-    for i in range(100):
-        time.sleep(0.0001)
-        b.progress(i + 1)
+run = st.checkbox("Start Detection")
 
-    start = st.radio('Options', ('Start', 'Stop'), key='Start_pred', index=1)
+if run:
+    FRAME_WINDOW = st.image([])
+    cap = cv2.VideoCapture(0)  # Menggunakan webcam
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
 
-    if start == 'Start':
-        decision = 0
-        st.markdown('<font face="Comic sans MS"><b>Detected Facial Region of Interest(ROI)&emsp;&emsp;&emsp;&emsp;&emsp;Extractd'
-                    ' Eye Features from the ROI</b></font>', unsafe_allow_html=True)
-        
-        # Best of 3 mechanism for drowsiness detection
-        for _ in range(3):
-            cap = cv2.VideoCapture(0)
-            ret, frame = cap.read()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-            # Proposal of face region by the har cascade classifier
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 5)
-                roi_gray = gray[y:y + w, x:x + w]
-                roi_color = frame[y:y + h, x:x + w]
-            frame1 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    closed_frames = 0
+    drowsy_detected = False
 
-            try:
-                # Cenentroid method for extraction of eye-patch 
-                centx, centy = roi_color.shape[:2]
-                centx //= 2
-                centy //= 2
-                eye_1 = roi_color[centy - 40: centy, centx - 70: centx]
-                eye_1 = cv2.resize(eye_1, (86, 86))
-                eye_2 = roi_color[centy - 40: centy, centx: centx + 70]
-                eye_2 = cv2.resize(eye_2, (86, 86))
-                cv2.rectangle(frame1, (x + centx - 60, y + centy - 40), (x + centx - 10, y + centy), (0, 255, 0), 5)
-                cv2.rectangle(frame1, (x + centx + 10, y + centy - 40), (x + centx + 60, y + centy), (0, 255, 0), 5)
-                preds_eye1 = model.predict(np.expand_dims(eye_1, axis=0))
-                preds_eye2 = model.predict(np.expand_dims(eye_2, axis=0))
-                e1, e2 = np.argmax(preds_eye1), np.argmax(preds_eye2)
-                
-                # Display of face image and extracted eye-patch
-                img_container = st.beta_columns(4)
-                img_container[0].image(frame1, width=250)
-                img_container[2].image(cv2.cvtColor(eye_1, cv2.COLOR_BGR2RGB), width=150)
-                img_container[3].image(cv2.cvtColor(eye_2, cv2.COLOR_BGR2RGB), width=150)
-                print(e1, e2)
-                
-                # Decision variable for prediction
-                if e1 == 1 or e2 == 1:
-                    pass
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to capture video.")
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+
+        for (x, y, w, h) in faces:
+            face = frame[y:y + h, x:x + w]
+            eyes = eye_cascade.detectMultiScale(face)
+
+            for (ex, ey, ew, eh) in eyes:
+                eye = face[ey:ey + eh, ex:ex + ew]
+                processed_eye = preprocess_eye(eye)
+                prediction = model.predict(processed_eye)
+                prob_closed = prediction[0][0]  # Probabilitas mata tertutup
+
+                # Deteksi kantuk berdasarkan probabilitas
+                if prob_closed > EYE_CLOSED_THRESHOLD:
+                    closed_frames += 1
+                    color = (0, 0, 255)  # Merah jika mata tertutup
+                    status = "Closed"
                 else:
-                    decision += 1
+                    closed_frames = 0
+                    color = (0, 255, 0)  # Hijau jika mata terbuka
+                    status = "Open"
 
-            except NameError:
-                st.warning('Hold your camera closer!!!\nTrying again in 2s')
-                cap.release()
-                time.sleep(1)
-                continue
+                # Gambar kotak di sekitar mata dan teks hasil deteksi
+                cv2.rectangle(face, (ex, ey), (ex + ew, ey + eh), color, 2)
+                cv2.putText(face, f"{status}: {prob_closed:.2f}", (ex, ey - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-            except:
-                cap.release()
-                continue
-
-            finally:
-                cap.release()
-
-        # If found drowsy, then make a beep sound to alert the driver
-        if decision == 0:
-            st.error('Eye(s) are closed')
-            winsound.Beep(2500, 2000)
-
+        # Tambahkan peringatan jika mata tertutup terlalu lama
+        if closed_frames > CLOSED_FRAMES_THRESHOLD:
+            drowsy_detected = True
+            cv2.putText(frame, "Drowsiness Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         else:
-            st.success('Eyes are Opened')
-        st.warning('Please select "Stop" and then "Start" to try again')
+            drowsy_detected = False
 
-# Help Us Improve page
+        # Tampilkan frame video
+        FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+    cap.release()
 else:
-    st.header('Help Us Improve')
-    st.success('We would appreciate your Help!!!')
-    st.markdown(
-        '<font face="Comic sans MS">To make this app better, we would appreciate your small amount of time.</font>'
-        '<font face="Comic sans MS">Let me take you through, some of the basic statistical analysis of this </font>'
-        '<font face="Comic sans MS">model. <br><b>Accuracy with naked eyes = 99.5%<br>Accuracy with spectacles = 96.8%</b><br></font> '
-        '<font face="Comic sans MS">As we can see here, accuracy with spectacles is not at all spectacular, and hence to make this app </font>'
-        '<font face="Comic sans MS">better, and to use it in real-time situations, we require as much data as we can gather.</font> '
-        , unsafe_allow_html=True)
-    st.warning('NOTE: Your identity will be kept anonymous, and only your eye-patch will be extracted!!!')
-    # Image upload
-    img_upload = st.file_uploader('Upload Image Here', ['png', 'jpg', 'jpeg'])
-    if img_upload is not None:
-        prog = st.progress(0)
-        to_add = cv2.imread(str(img_upload.read()), 0)
-        to_add = pd.DataFrame(to_add)
-        
-        # Save it in the database
-        to_add.to_csv('Data_from_users.csv', mode='a', header=False, index=False, sep=';')
-        for i in range(100):
-            time.sleep(0.001)
-            prog.progress(i + 1)
-        st.success('Uploaded Successfully!!! Thank you for contributing.')
+    st.write("Click the checkbox to start detection.")
